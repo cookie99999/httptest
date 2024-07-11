@@ -65,7 +65,7 @@ int cl_load(int s, char **buf, int *total, long remaining, int *bufsize) {
 int chunked_load(int s, char **buf, int *total, char **bodystart, int *bufsize) {
   char *chunkbuf, *pos, *tmp;
   int chunkbufsize = CHUNKBUF_INIT_SIZE;
-  int chunksize, remaining, data_recvd, n;
+  int chunksize, remaining, data_recvd = 0, n;
   /* *chunkbuf: temporary buffer used for decoded chunk data
    * *pos: temporary pointer to our current decoding position in buf
    * *tmp: temporary pointer for reallocs
@@ -82,53 +82,77 @@ int chunked_load(int s, char **buf, int *total, char **bodystart, int *bufsize) 
     return -1;
 
   pos = *bodystart;
-  //TODO: make this a loop once it works
-  chunksize = strtol(pos, &pos, 16); //pos = end of chunksize
-  if ((pos = strstr(pos, "\r\n")) == NULL) {
-    fprintf(stderr, "chunked_load: malformed message body received from host (or foolish programming error)\n");
-    return -1;
-  }
-  pos += strlen("\r\n"); //pos now points at beginning of chunk data
-  printf("First chunk size is 0x%x\n", chunksize);
-
-  data_recvd = (*buf + *bufsize) - pos;
-  printf("dbg already have 0x%lx\n", (*buf + *bufsize) - pos);
-  remaining = (chunksize - ((*buf + *bufsize) - pos));
-  printf("dbg remaining = 0x%x/0x%x\n", remaining, chunksize);
-
-  if (chunksize > (chunkbufsize - data_recvd)) {
-    printf("dbg first chunk bigger than chunk buffer\n");
-    if ((tmp = realloc(chunkbuf, chunkbufsize += remaining)) == NULL)
+  /* At start of loop:
+     pos points into buf at the beginning of the chunk size
+     data_recvd = total actual chunk data received so far
+  */
+  for (;;) {
+    chunksize = strtol(pos, &pos, 16); //pos = end of chunksize
+    if (chunksize == 0)
+      break; //last chunk
+    
+    if ((pos = strstr(pos, "\r\n")) == NULL) {
+      fprintf(stderr, "chunked_load: malformed message body received from host\n");
       return -1;
-    chunkbuf = tmp;
-  }
+    }
+    pos += strlen("\r\n"); //pos now points at beginning of chunk data
+    printf("Chunk size is 0x%x\n", chunksize);
 
-  if (chunksize > (*bufsize - *total)) {
-    printf("dbg chunk bigger than main buffer\n");
+    
+    printf("dbg already have 0x%lx\n", (*buf + *total) - pos);
+    remaining = (chunksize - ((*buf + *total) - pos));
+    printf("dbg remaining = 0x%x/0x%x\n", remaining, chunksize);
+    if (remaining > 0) {
+      data_recvd += (*buf + *total) - pos;
+    } else {
+      data_recvd += chunksize;
+    }
+
+    if (chunksize > (chunkbufsize - data_recvd)) {
+      printf("dbg chunk bigger than chunk buffer\n");
+      if ((tmp = realloc(chunkbuf, chunkbufsize += remaining)) == NULL)
+	return -1;
+      chunkbuf = tmp;
+    }
+
+    if (chunksize > (*bufsize - *total)) {
+      printf("dbg chunk bigger than main buffer\n");
+      int tmpoffs1 = *bodystart - *buf;
+      int tmpoffs2 = pos - *buf;
+      if ((tmp = realloc(*buf, *bufsize += remaining)) == NULL)
+	return -1;
+      *buf = tmp;
+      *bodystart = (*buf) + tmpoffs1;
+      pos = (*buf) + tmpoffs2;
+    }
+
+    while (remaining > 0) {
+      if ((n = recv(s, *buf + *total, remaining, 0)) < 0)
+	return -1;
+      *total += n;
+      remaining -= n;
+      data_recvd += n;
+    }
+
+    memcpy(chunkbuf + (data_recvd - chunksize), pos, chunksize);
+    pos += chunksize;
+    pos += strlen("\r\n"); //terminating crlf on chunk
+
+    //get start of next chunk and go again
     int tmpoffs1 = *bodystart - *buf;
     int tmpoffs2 = pos - *buf;
-    if ((tmp = realloc(*buf, *bufsize += remaining)) == NULL)
+    if ((tmp = realloc(*buf, *bufsize += REALLOC_INCR)) == NULL)
       return -1;
     *buf = tmp;
     *bodystart = (*buf) + tmpoffs1;
     pos = (*buf) + tmpoffs2;
+
+    if ((n = recv(s, *buf + *total, REALLOC_INCR, 0)) < 0)
+      return -1;
+    *total += n;
   }
-
-  if (chunksize > data_recvd) {
-    printf("dbg need to get rest of chunk\n");
-    while (remaining > 0) {
-      if ((n = recv(s, *buf, remaining, 0)) < 0)
-        return -1;
-      *total += n;
-      data_recvd += n;
-      remaining -= n;
-    }
-  }
-
-  memcpy(chunkbuf, pos, chunksize);
-
+  
   memcpy(*bodystart, chunkbuf, data_recvd);
-
   free(chunkbuf);
   return 0;
 }
@@ -186,7 +210,7 @@ int main(int argc, char **argv) {
   struct addrinfo hints, *res;
   int status, s, bytecount;
   char reqbuf[REQBUF_SIZE];
-  char *recvbuf;
+  char *recvbuf = NULL;
 
   if (argc != 3) {
     fprintf(stderr, "Usage: gettest hostname resource\n");

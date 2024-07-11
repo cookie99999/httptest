@@ -15,6 +15,8 @@
 #define REALLOC_INCR 1024
 #define CHUNKBUF_INIT_SIZE 1024
 
+//TODO: all pointers into buffers need to be recomputed safely when realloc'ing'
+
 /* Public domain function from beej.us/guide/bgnet */
 int sendall(int s, char *buf, int *len) {
   int total = 0;
@@ -36,12 +38,17 @@ int sendall(int s, char *buf, int *len) {
 
 int cl_load(int s, char **buf, int *total, long remaining, int *bufsize) {
   int n;
+  char *tmp;
+
   if (remaining > 0) {
-    if ((*buf = realloc(*buf, *bufsize += remaining)) == NULL)
+    if ((tmp = realloc(*buf, *bufsize += remaining + 1)) == NULL)
       return -1;
+    else
+      *buf = tmp;
+    (*buf)[*bufsize - 1] = '\0'; //re-terminate
     while (remaining > 0) {
       if ((n = recv(s, *buf + *total, remaining, 0)) < 0)
-	return -1;
+        return -1;
       *total += n;
       remaining -= n;
     }
@@ -49,35 +56,78 @@ int cl_load(int s, char **buf, int *total, long remaining, int *bufsize) {
   return n < 0 ? -1 : 0;
 }
 
-int chunked_load(int s, char **buf, int *total, char *bodystart, int *bufsize) {
-  printf("Loading chunks...\n");
-  char *chunkbuf, *pos;
-  int remaining;
+/* s: socket used for receiving
+ * **buf: pointer to character buffer, the final full message will go here
+ * *total: pointer to running total of bytes received into buf
+ * **bodystart: pointer to pointer to beginning of message body in buf
+ * *bufsize: pointer to total allocated size of buf
+ */
+int chunked_load(int s, char **buf, int *total, char **bodystart, int *bufsize) {
+  char *chunkbuf, *pos, *tmp;
   int chunkbufsize = CHUNKBUF_INIT_SIZE;
-  long chunksize;
+  int chunksize, remaining, data_recvd, n;
+  /* *chunkbuf: temporary buffer used for decoded chunk data
+   * *pos: temporary pointer to our current decoding position in buf
+   * *tmp: temporary pointer for reallocs
+   * chunkbufsize: size of chunkbuf
+   * chunksize: size of currently decoding chunk
+   * remaining: bytes left to receive of currently decoding chunk
+   * data_recvd: bytes decoded into chunkbuf
+   * n: temp variable for counting bytes received
+   */
+
+  printf("Loading chunks...\n");
+
   if ((chunkbuf = malloc(CHUNKBUF_INIT_SIZE)) == NULL)
     return -1;
 
-  /* We must deal with the first chunk separately as it's almost
-     definitely been partially loaded while getting headers
-  */
-  memcpy(chunkbuf, bodystart, (*buf + *bufsize) - bodystart);
-  chunksize = strtol(chunkbuf, &pos, 16);
-  *total += chunksize;
-  printf("First chunk size is %lx\n", chunksize);
-  
-  if (chunksize > chunkbufsize) {
-    printf("dbg first chunk bigger than buffer\n");
-    if ((chunkbuf = realloc(chunkbuf, chunkbufsize += chunksize)) == NULL)
+  pos = *bodystart;
+  //TODO: make this a loop once it works
+  chunksize = strtol(pos, &pos, 16); //pos = end of chunksize
+  if ((pos = strstr(pos, "\r\n")) == NULL) {
+    fprintf(stderr, "chunked_load: malformed message body received from host (or foolish programming error)\n");
+    return -1;
+  }
+  pos += strlen("\r\n"); //pos now points at beginning of chunk data
+  printf("First chunk size is 0x%x\n", chunksize);
+
+  data_recvd = (*buf + *bufsize) - pos;
+  printf("dbg already have 0x%lx\n", (*buf + *bufsize) - pos);
+  remaining = (chunksize - ((*buf + *bufsize) - pos));
+  printf("dbg remaining = 0x%x/0x%x\n", remaining, chunksize);
+
+  if (chunksize > (chunkbufsize - data_recvd)) {
+    printf("dbg first chunk bigger than chunk buffer\n");
+    if ((tmp = realloc(chunkbuf, chunkbufsize += remaining)) == NULL)
       return -1;
+    chunkbuf = tmp;
   }
-  
-  if (chunksize > (*buf + *bufsize) - bodystart) {
+
+  if (chunksize > (*bufsize - *total)) {
+    printf("dbg chunk bigger than main buffer\n");
+    int tmpoffs1 = *bodystart - *buf;
+    int tmpoffs2 = pos - *buf;
+    if ((tmp = realloc(*buf, *bufsize += remaining)) == NULL)
+      return -1;
+    *buf = tmp;
+    *bodystart = (*buf) + tmpoffs1;
+    pos = (*buf) + tmpoffs2;
+  }
+
+  if (chunksize > data_recvd) {
     printf("dbg need to get rest of chunk\n");
-    printf("dbg already have %lx\n", (*buf + *bufsize) - bodystart);
-    remaining = (chunksize - ((*buf + *bufsize) - bodystart));
-    printf("dbg remaining = %x/%lx\n", remaining, chunksize);
+    while (remaining > 0) {
+      if ((n = recv(s, *buf, remaining, 0)) < 0)
+        return -1;
+      *total += n;
+      data_recvd += n;
+      remaining -= n;
+    }
   }
+
+  memcpy(chunkbuf, pos, chunksize);
+
+  memcpy(*bodystart, chunkbuf, data_recvd);
 
   free(chunkbuf);
   return 0;
@@ -88,9 +138,11 @@ int recvall_http(int s, char **buf, int *count) {
   long remaining;
   int bufsize = RECVBUF_INIT_SIZE;
   int n;
+  char *tmp;
 
-  if ((*buf = malloc(bufsize)) == NULL)
+  if ((*buf = malloc(bufsize + 1)) == NULL)
     return -1;
+  memset(*buf, '\0', bufsize + 1); //terminate
 
   // get first chunk and then load the entire header
   if ((n = recv(s, *buf, bufsize, 0)) < 0)
@@ -100,9 +152,14 @@ int recvall_http(int s, char **buf, int *count) {
   char *bodystart;
   //TODO: what happens if the server never puts a crlf crlf anywhere at all
   while ((bodystart = strstr(*buf, "\r\n\r\n")) == NULL) {
-    if ((*buf = realloc(*buf, bufsize += REALLOC_INCR)) == NULL)
+    int tmpoffs = bodystart - *buf;
+    if ((tmp = realloc(*buf, bufsize += REALLOC_INCR + 1)) == NULL)
       return -1;
-    if ((n = recv(s, *buf + total, bufsize, 0)) < 0)
+    *buf = tmp;
+    bodystart = (*buf) + tmpoffs;
+    (*buf)[bufsize - 1] = '\0'; //re-terminate
+
+    if ((n = recv(s, *buf + total, REALLOC_INCR, 0)) < 0)
       return -1;
     total += n;
   }
@@ -111,7 +168,7 @@ int recvall_http(int s, char **buf, int *count) {
   char *clstart;
 
   if (strstr(*buf, "Transfer-Encoding: chunked") != NULL) {
-    n = chunked_load(s, buf, &total, bodystart, &bufsize);
+    n = chunked_load(s, buf, &total, &bodystart, &bufsize);
   } else if ((clstart = strstr(*buf, "Content-Length: ")) != NULL) {
     clstart += strlen("Content-Length: ");
     long cl = strtol(clstart, NULL, 10);
@@ -128,7 +185,6 @@ int recvall_http(int s, char **buf, int *count) {
 int main(int argc, char **argv) {
   struct addrinfo hints, *res;
   int status, s, bytecount;
-  char ipstr[INET6_ADDRSTRLEN];
   char reqbuf[REQBUF_SIZE];
   char *recvbuf;
 
@@ -159,7 +215,6 @@ int main(int argc, char **argv) {
   }
 
   freeaddrinfo(res);
-
   
   int n;
   if ((n = snprintf(reqbuf, REQBUF_SIZE, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", argv[2], argv[1])) < 0) {

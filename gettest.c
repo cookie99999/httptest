@@ -108,15 +108,15 @@ int chunked_load(int s, char **buf, int *total, char **bodystart, int *bufsize) 
       data_recvd += chunksize;
     }
 
-    if (chunksize > (chunkbufsize - data_recvd)) {
-      printf("dbg chunk bigger than chunk buffer\n");
+    if (remaining > (chunkbufsize - data_recvd)) {
+      //need more space in chunk buffer for remainder of chunk
       if ((tmp = realloc(chunkbuf, chunkbufsize += remaining)) == NULL)
 	return -1;
       chunkbuf = tmp;
     }
 
-    if (chunksize > (*bufsize - *total)) {
-      printf("dbg chunk bigger than main buffer\n");
+    if (remaining > (*bufsize - *total)) {
+      //need more space in main buffer for remainder of chunk
       int tmpoffs1 = *bodystart - *buf;
       int tmpoffs2 = pos - *buf;
       if ((tmp = realloc(*buf, *bufsize += remaining)) == NULL)
@@ -126,7 +126,10 @@ int chunked_load(int s, char **buf, int *total, char **bodystart, int *bufsize) 
       pos = (*buf) + tmpoffs2;
     }
 
+    printf("dbg free space on main buf = %d\n", *bufsize - *total);
+    printf("dbg remaining = %d\n", remaining);
     while (remaining > 0) {
+      printf("dbg receiving more\n");
       if ((n = recv(s, *buf + *total, remaining, 0)) < 0)
 	return -1;
       *total += n;
@@ -164,9 +167,8 @@ int recvall_http(int s, char **buf, int *count) {
   int n;
   char *tmp;
 
-  if ((*buf = malloc(bufsize + 1)) == NULL)
+  if ((*buf = malloc(bufsize)) == NULL)
     return -1;
-  memset(*buf, '\0', bufsize + 1); //terminate
 
   // get first chunk and then load the entire header
   if ((n = recv(s, *buf, bufsize, 0)) < 0)
@@ -174,7 +176,6 @@ int recvall_http(int s, char **buf, int *count) {
   total += n;
 
   char *bodystart;
-  //TODO: what happens if the server never puts a crlf crlf anywhere at all
   while ((bodystart = strstr(*buf, "\r\n\r\n")) == NULL) {
     int tmpoffs = bodystart - *buf;
     if ((tmp = realloc(*buf, bufsize += REALLOC_INCR + 1)) == NULL)

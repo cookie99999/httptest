@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <assert.h>
 #include <limits.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -36,16 +37,16 @@ int sendall(int s, char *buf, int *len) {
   return n < 0 ? -1 : 0;
 }
 
-int cl_load(int s, char **buf, int *total, long remaining, int *bufsize) {
+/* Load response when Content-Length is provided by server */
+int cl_load(int s, char **buf, int *total, long remaining, int bufsize) {
   int n;
   char *tmp;
 
   if (remaining > 0) {
-    if ((tmp = realloc(*buf, *bufsize += remaining + 1)) == NULL)
+    if ((tmp = realloc(*buf, bufsize += remaining + 1)) == NULL)
       return -1;
     else
       *buf = tmp;
-    (*buf)[*bufsize - 1] = '\0'; //re-terminate
     while (remaining > 0) {
       if ((n = recv(s, *buf + *total, remaining, 0)) < 0)
         return -1;
@@ -53,28 +54,15 @@ int cl_load(int s, char **buf, int *total, long remaining, int *bufsize) {
       remaining -= n;
     }
   }
+  (*buf)[*total - 1] = '\0'; //terminate
   return n < 0 ? -1 : 0;
 }
 
-/* s: socket used for receiving
- * **buf: pointer to character buffer, the final full message will go here
- * *total: pointer to running total of bytes received into buf
- * **bodystart: pointer to pointer to beginning of message body in buf
- * *bufsize: pointer to total allocated size of buf
- */
-int chunked_load(int s, char **buf, int *total, char **bodystart, int *bufsize) {
-  char *chunkbuf, *pos, *tmp;
+/* Load response when Transfer-Encoding: chunked is used by server */
+int chunked_load(int s, char **buf, int *total, char **bodystart, int bufsize) {
+  char *chunkbuf = NULL, *pos = NULL, *tmp = NULL;
   int chunkbufsize = CHUNKBUF_INIT_SIZE;
   int chunksize, remaining, data_recvd = 0, n;
-  /* *chunkbuf: temporary buffer used for decoded chunk data
-   * *pos: temporary pointer to our current decoding position in buf
-   * *tmp: temporary pointer for reallocs
-   * chunkbufsize: size of chunkbuf
-   * chunksize: size of currently decoding chunk
-   * remaining: bytes left to receive of currently decoding chunk
-   * data_recvd: bytes decoded into chunkbuf
-   * n: temp variable for counting bytes received
-   */
 
   printf("Loading chunks...\n");
 
@@ -96,40 +84,27 @@ int chunked_load(int s, char **buf, int *total, char **bodystart, int *bufsize) 
       return -1;
     }
     pos += strlen("\r\n"); //pos now points at beginning of chunk data
-    printf("Chunk size is 0x%x\n", chunksize);
-
     
-    printf("dbg already have 0x%lx\n", (*buf + *total) - pos);
     remaining = (chunksize - ((*buf + *total) - pos));
-    printf("dbg remaining = 0x%x/0x%x\n", remaining, chunksize);
     if (remaining > 0) {
       data_recvd += (*buf + *total) - pos;
     } else {
       data_recvd += chunksize;
     }
 
-    if (remaining > (chunkbufsize - data_recvd)) {
-      //need more space in chunk buffer for remainder of chunk
-      if ((tmp = realloc(chunkbuf, chunkbufsize += remaining)) == NULL)
-	return -1;
-      chunkbuf = tmp;
-    }
-
-    if (remaining > (*bufsize - *total)) {
+    if (remaining > (bufsize - *total)) {
       //need more space in main buffer for remainder of chunk
       int tmpoffs1 = *bodystart - *buf;
       int tmpoffs2 = pos - *buf;
-      if ((tmp = realloc(*buf, *bufsize += remaining)) == NULL)
+      if ((tmp = realloc(*buf, bufsize += remaining)) == NULL)
 	return -1;
       *buf = tmp;
       *bodystart = (*buf) + tmpoffs1;
       pos = (*buf) + tmpoffs2;
     }
-
-    printf("dbg free space on main buf = %d\n", *bufsize - *total);
-    printf("dbg remaining = %d\n", remaining);
+  
     while (remaining > 0) {
-      printf("dbg receiving more\n");
+      assert(remaining <= bufsize - *total);
       if ((n = recv(s, *buf + *total, remaining, 0)) < 0)
 	return -1;
       *total += n;
@@ -137,6 +112,13 @@ int chunked_load(int s, char **buf, int *total, char **bodystart, int *bufsize) 
       data_recvd += n;
     }
 
+    while (data_recvd > chunkbufsize) {
+      //need more space in chunk buffer before copying
+      if ((tmp = realloc(chunkbuf, chunkbufsize += REALLOC_INCR)) == NULL)
+	return -1;
+      chunkbuf = tmp;
+    }
+	
     memcpy(chunkbuf + (data_recvd - chunksize), pos, chunksize);
     pos += chunksize;
     pos += strlen("\r\n"); //terminating crlf on chunk
@@ -144,7 +126,7 @@ int chunked_load(int s, char **buf, int *total, char **bodystart, int *bufsize) 
     //get start of next chunk and go again
     int tmpoffs1 = *bodystart - *buf;
     int tmpoffs2 = pos - *buf;
-    if ((tmp = realloc(*buf, *bufsize += REALLOC_INCR)) == NULL)
+    if ((tmp = realloc(*buf, bufsize += REALLOC_INCR)) == NULL)
       return -1;
     *buf = tmp;
     *bodystart = (*buf) + tmpoffs1;
@@ -153,9 +135,15 @@ int chunked_load(int s, char **buf, int *total, char **bodystart, int *bufsize) 
     if ((n = recv(s, *buf + *total, REALLOC_INCR, 0)) < 0)
       return -1;
     *total += n;
+
+    assert(pos < (*buf + bufsize) && pos >= *buf);
+    assert(*bodystart < (*buf + bufsize) && *bodystart >= *buf);
+    assert(chunkbufsize >= data_recvd);
+    assert(bufsize >= *total);
   }
   
   memcpy(*bodystart, chunkbuf, data_recvd);
+  (*buf)[(*bodystart - *buf) + data_recvd] = '\0'; //terminate properly and cut off trailer etc
   free(chunkbuf);
   return 0;
 }
@@ -170,7 +158,10 @@ int recvall_http(int s, char **buf, int *count) {
   if ((*buf = malloc(bufsize)) == NULL)
     return -1;
 
-  // get first chunk and then load the entire header
+  /* get a first piece of data, and then
+     continue loading until we get CRLFCRLF
+     signifying end of header
+  */
   if ((n = recv(s, *buf, bufsize, 0)) < 0)
     return -1;
   total += n;
@@ -178,11 +169,10 @@ int recvall_http(int s, char **buf, int *count) {
   char *bodystart;
   while ((bodystart = strstr(*buf, "\r\n\r\n")) == NULL) {
     int tmpoffs = bodystart - *buf;
-    if ((tmp = realloc(*buf, bufsize += REALLOC_INCR + 1)) == NULL)
+    if ((tmp = realloc(*buf, bufsize += REALLOC_INCR)) == NULL)
       return -1;
     *buf = tmp;
     bodystart = (*buf) + tmpoffs;
-    (*buf)[bufsize - 1] = '\0'; //re-terminate
 
     if ((n = recv(s, *buf + total, REALLOC_INCR, 0)) < 0)
       return -1;
@@ -193,14 +183,20 @@ int recvall_http(int s, char **buf, int *count) {
   char *clstart;
 
   if (strstr(*buf, "Transfer-Encoding: chunked") != NULL) {
-    n = chunked_load(s, buf, &total, &bodystart, &bufsize);
+    n = chunked_load(s, buf, &total, &bodystart, bufsize);
   } else if ((clstart = strstr(*buf, "Content-Length: ")) != NULL) {
     clstart += strlen("Content-Length: ");
     long cl = strtol(clstart, NULL, 10);
     remaining = (cl - (bufsize - headerlen));
-    n = cl_load(s, buf, &total, remaining, &bufsize);
+    n = cl_load(s, buf, &total, remaining, bufsize);
   } else {
-    //TODO: receive until connection closed
+    /* http 1.1 spec says some servers can just keep sending
+       data until they close the connection,
+       but i haven't seen this yet and am lazy
+       so i'll leave it for now
+    */
+    printf("Remote host did not provide content length or supported transfer encoding.\n");
+    n = -1;
   }
   
   *count = total;
@@ -242,6 +238,7 @@ int main(int argc, char **argv) {
   freeaddrinfo(res);
   
   int n;
+  //TODO: size this buffer dynamically in case you have a really big header
   if ((n = snprintf(reqbuf, REQBUF_SIZE, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", argv[2], argv[1])) < 0) {
     fprintf(stderr, "snprintf: encoding error\n");
     return 5;

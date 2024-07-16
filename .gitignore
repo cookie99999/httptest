@@ -2,3 +2,5 @@
 *.out
 *~
 gettest
+gtktest
+fltest

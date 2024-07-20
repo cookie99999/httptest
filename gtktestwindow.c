@@ -19,25 +19,26 @@ G_DEFINE_TYPE_WITH_PRIVATE(GtkTestAppWindow, gtktest_app_window, GTK_TYPE_APPLIC
 static void gtktest_app_window_init(GtkTestAppWindow *win) {
   GtkWidget *box, *box2;
   GtkWidget *button;
+  GtkWidget *scrollwin;
   
   GtkTestAppWindowPrivate *priv;
   priv = gtktest_app_window_get_instance_private(win);
   
   box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-  gtk_widget_set_halign(box, GTK_ALIGN_CENTER);
-  gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
+  gtk_widget_set_halign(box, GTK_ALIGN_FILL);
+  gtk_widget_set_valign(box, GTK_ALIGN_FILL);
   gtk_container_add(GTK_CONTAINER(win), box);
 
   box2 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
-  gtk_widget_set_halign(box2, GTK_ALIGN_CENTER);
+  gtk_widget_set_halign(box2, GTK_ALIGN_FILL);
   gtk_widget_set_valign(box2, GTK_ALIGN_CENTER);
   gtk_box_pack_start(GTK_BOX(box), box2, FALSE, FALSE, 0);
 
   priv->host_text = gtk_entry_new();
-  gtk_box_pack_start(GTK_BOX(box2), priv->host_text, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(box2), priv->host_text, TRUE, TRUE, 0);
 
   priv->resource_text = gtk_entry_new();
-  gtk_box_pack_start(GTK_BOX(box2), priv->resource_text, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(box2), priv->resource_text, TRUE, TRUE, 0);
 
   button = gtk_button_new_with_label("Request");
   g_signal_connect(button, "clicked", G_CALLBACK(gtktest_app_window_reqcb), win);
@@ -48,7 +49,10 @@ static void gtktest_app_window_init(GtkTestAppWindow *win) {
   gtk_text_view_set_monospace(GTK_TEXT_VIEW(priv->textarea), TRUE);
   gtk_text_view_set_cursor_visible(GTK_TEXT_VIEW(priv->textarea), FALSE);
   gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(priv->textarea), GTK_WRAP_WORD_CHAR);
-  gtk_box_pack_start(GTK_BOX(box), priv->textarea, FALSE, FALSE, 0);
+
+  scrollwin = gtk_scrolled_window_new(NULL, NULL);
+  gtk_container_add(GTK_CONTAINER(scrollwin), priv->textarea);
+  gtk_box_pack_start(GTK_BOX(box), scrollwin, TRUE, TRUE, 0);
 }
 
 static void gtktest_app_window_class_init(GtkTestAppWindowClass *class) {

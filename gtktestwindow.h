@@ -8,5 +8,6 @@
 G_DECLARE_FINAL_TYPE(GtkTestAppWindow, gtktest_app_window, GTKTEST, APP_WINDOW, GtkApplicationWindow);
 
 GtkTestAppWindow *gtktest_app_window_new(GtkTestApp *app);
+void gtktest_app_window_reqcb (GtkWidget *widget, GtkTestAppWindow *win);
 
 #endif /* __GTKTESTWINDOW_H */

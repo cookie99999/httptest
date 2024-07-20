@@ -69,7 +69,12 @@ void gtktest_app_window_reqcb (GtkWidget *widget, GtkTestAppWindow *win) {
 
   const gchar *host = gtk_entry_buffer_get_text(gtk_entry_get_buffer(GTK_ENTRY(priv->host_text)));
   const gchar *resource = gtk_entry_buffer_get_text(gtk_entry_get_buffer(GTK_ENTRY(priv->resource_text)));
+  char *response = httpoop_get((char *)host, (char *)resource);
+  if (response == NULL) {
+    //TODO: show some error dialogue
+  }
 
-  gtk_text_buffer_insert(viewbuf, &iter, httpoop_get((char *)host, (char *)resource), -1);
+  gtk_text_buffer_insert(viewbuf, &iter, response, -1);
   gtk_text_view_set_buffer(GTK_TEXT_VIEW(priv->textarea), viewbuf);
+  free(response);
 }

@@ -15,7 +15,7 @@ static void gtktest_app_activate(GApplication *app) {
   GtkTestAppWindow *window;
 
   window = gtktest_app_window_new(GTKTEST_APP(app));
-  gtk_window_set_title(GTK_WINDOW(window), "Hello");
+  gtk_window_set_title(GTK_WINDOW(window), "GTK Test");
   gtk_widget_show_all(GTK_WIDGET(window));
 }
 

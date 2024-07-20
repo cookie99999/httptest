@@ -17,7 +17,7 @@
 #define REALLOC_INCR 1024
 
 /* Public domain function from beej.us/guide/bgnet */
-int sendall(int s, char *buf, int *len) {
+static int sendall(int s, char *buf, int *len) {
   int total = 0;
   int bytesleft = *len;
   int n;
@@ -36,7 +36,7 @@ int sendall(int s, char *buf, int *len) {
 }
 
 /* Load response when Content-Length is provided by server */
-int cl_load(int s, char **buf, int *total, long remaining, int bufsize) {
+static int cl_load(int s, char **buf, int *total, long remaining, int bufsize) {
   int n;
   char *tmp;
 
@@ -57,7 +57,7 @@ int cl_load(int s, char **buf, int *total, long remaining, int bufsize) {
 }
 
 /* Load response when Transfer-Encoding: chunked is used by server */
-int chunked_load(int s, char **buf, int *total, char **bodystart, int bufsize) {
+static int chunked_load(int s, char **buf, int *total, char **bodystart, int bufsize) {
   char *chunkbuf = NULL, *pos = NULL, *tmp = NULL;
   int chunkbufsize = BUF_INIT_SIZE;
   int chunksize, remaining, data_recvd = 0, n;
@@ -146,7 +146,7 @@ int chunked_load(int s, char **buf, int *total, char **bodystart, int bufsize) {
   return 0;
 }
 
-int recvall_http(int s, char **buf, int *count) {
+static int recvall_http(int s, char **buf, int *count) {
   int total = 0;
   long remaining;
   int bufsize = BUF_INIT_SIZE;

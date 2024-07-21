@@ -16,6 +16,20 @@
 #define BUF_INIT_SIZE 1024
 #define REALLOC_INCR 1024
 
+void httpoop_response_delete(httpoop_response resp) {
+  if (resp.buffer != NULL)
+    free(resp.buffer);
+
+  if (resp.charset != NULL)
+    free(resp.charset);
+
+  if (resp.content_type != NULL)
+    free(resp.content_type);
+
+  if (resp.redirect_uri != NULL)
+    free(resp.redirect_uri);
+}
+
 /* Public domain function from beej.us/guide/bgnet */
 static int sendall(int s, char *buf, int *len) {
   int total = 0;
@@ -35,6 +49,7 @@ static int sendall(int s, char *buf, int *len) {
   return n < 0 ? -1 : 0;
 }
 
+//TODO: possibly failing to load all bytes sometimes, investigate
 /* Load response when Content-Length is provided by server */
 static int cl_load(int s, char **buf, int *total, long remaining, int bufsize) {
   int n;
@@ -94,7 +109,7 @@ static int chunked_load(int s, char **buf, int *total, char **bodystart, int buf
       //need more space in main buffer for remainder of chunk
       int tmpoffs1 = *bodystart - *buf;
       int tmpoffs2 = pos - *buf;
-      if ((tmp = realloc(*buf, bufsize += remaining)) == NULL)
+      if ((tmp = realloc(*buf, bufsize += remaining + 1)) == NULL)
 	return -1;
       *buf = tmp;
       *bodystart = (*buf) + tmpoffs1;
@@ -124,7 +139,7 @@ static int chunked_load(int s, char **buf, int *total, char **bodystart, int buf
     //get start of next chunk and go again
     int tmpoffs1 = *bodystart - *buf;
     int tmpoffs2 = pos - *buf;
-    if ((tmp = realloc(*buf, bufsize += REALLOC_INCR)) == NULL)
+    if ((tmp = realloc(*buf, bufsize += REALLOC_INCR + 1)) == NULL)
       return -1;
     *buf = tmp;
     *bodystart = (*buf) + tmpoffs1;
@@ -200,12 +215,23 @@ static int recvall_http(int s, char **buf, int *count) {
   *count = total;
   return n < 0 ? -1 : 0;
 }
+
+static void strip_headers(char *buf, int len) {
+  char *bodystart = strstr(buf, "\r\n\r\n");
+  /* TODO: replace this with actual error handling because 404s etc often
+     have empty bodies
+  */
+  assert(bodystart != NULL);
+  bodystart += strlen("\r\n\r\n");
+  int bodylen = len - (bodystart - buf);
+  memmove(buf, bodystart, bodylen);
+}
   
-char *httpoop_get(char *host, char *resource) {
+httpoop_response httpoop_get(char *host, char *resource) {
   struct addrinfo hints, *res;
   int status, s, bytecount;
   char reqbuf[REQBUF_SIZE];
-  char *recvbuf = NULL;
+  HTTPOOP_RESPONSE_NEW(resp);
 
   memset(&hints, 0, sizeof hints);
   hints.ai_family = AF_INET;
@@ -214,18 +240,18 @@ char *httpoop_get(char *host, char *resource) {
   printf("Looking up %s...\n", host);
   if ((status = getaddrinfo(host, "80", &hints, &res)) != 0) {
     fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
-    return NULL;
+    return resp;
   }
 
   if ((s = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0) {
     perror("socket");
-    return NULL;
+    return resp;
   }
 
   printf("Connecting to %s...\n", host);
   if ((connect(s, res->ai_addr, res->ai_addrlen)) < 0) {
     perror("connect");
-    return NULL;
+    return resp;
   }
 
   freeaddrinfo(res);
@@ -234,29 +260,37 @@ char *httpoop_get(char *host, char *resource) {
   //TODO: size this buffer dynamically in case you have a really big header
   if ((n = snprintf(reqbuf, REQBUF_SIZE, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", resource, host)) < 0) {
     fprintf(stderr, "snprintf: encoding error\n");
-    return NULL;
+    return resp;
   }
 
   printf("Sending request for %s...\n", resource);
   if ((bytecount = sendall(s, reqbuf, &n)) < 0) {
     perror("sendall");
-    return NULL;
+    return resp;
   }
 
   printf("Waiting for response... ");
-  if ((recvall_http(s, &recvbuf, &bytecount)) < 0) {
+  if ((recvall_http(s, &(resp.buffer), &bytecount)) < 0) {
     perror("recv");
-    return NULL;
+    return resp;
   }
 
   if (bytecount == 0) {
     printf("Connection closed by remote host.\n");
-    return NULL;
+    return resp;
   }
 
   printf("Bytes received: %d\n", bytecount);
-
   close(s);
   printf("Connection closed.\n");
-  return recvbuf;
+
+  resp.length = bytecount;
+  char *tmppos = strstr(resp.buffer, "HTTP/1.1 ");
+  assert(tmppos != NULL);
+  tmppos += strlen("HTTP/1.1 ");
+  resp.status = (int) strtol(tmppos, NULL, 10); //TODO bad typecast
+  printf("status = %d\n", resp.status);
+  if (resp.status == 200)
+    strip_headers(resp.buffer, bytecount + 1); //+1 for \0
+  return resp;
 }

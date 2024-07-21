@@ -3,6 +3,7 @@
 #include "gtktest.h"
 #include "gtktestwindow.h"
 #include "httpoop/get.h"
+#include "httpoop/util.h"
 
 struct _GtkTestAppWindow {
   GtkApplicationWindow parent;
@@ -10,7 +11,7 @@ struct _GtkTestAppWindow {
 
 typedef struct _GtkTestAppWindowPrivate GtkTestAppWindowPrivate;
 struct _GtkTestAppWindowPrivate {
-  GtkWidget *host_text, *resource_text;
+  GtkWidget *uri_entry;
   GtkWidget *textarea;
 };
 
@@ -34,11 +35,8 @@ static void gtktest_app_window_init(GtkTestAppWindow *win) {
   gtk_widget_set_valign(box2, GTK_ALIGN_CENTER);
   gtk_box_pack_start(GTK_BOX(box), box2, FALSE, FALSE, 0);
 
-  priv->host_text = gtk_entry_new();
-  gtk_box_pack_start(GTK_BOX(box2), priv->host_text, TRUE, TRUE, 0);
-
-  priv->resource_text = gtk_entry_new();
-  gtk_box_pack_start(GTK_BOX(box2), priv->resource_text, TRUE, TRUE, 0);
+  priv->uri_entry = gtk_entry_new();
+  gtk_box_pack_start(GTK_BOX(box2), priv->uri_entry, TRUE, TRUE, 0);
 
   button = gtk_button_new_with_label("Request");
   g_signal_connect(button, "clicked", G_CALLBACK(gtktest_app_window_reqcb), win);
@@ -71,14 +69,17 @@ void gtktest_app_window_reqcb (GtkWidget *widget, GtkTestAppWindow *win) {
   GtkTextIter iter;
   gtk_text_buffer_get_iter_at_offset(viewbuf, &iter, 0);
 
-  const gchar *host = gtk_entry_buffer_get_text(gtk_entry_get_buffer(GTK_ENTRY(priv->host_text)));
-  const gchar *resource = gtk_entry_buffer_get_text(gtk_entry_get_buffer(GTK_ENTRY(priv->resource_text)));
-  char *response = httpoop_get((char *)host, (char *)resource);
-  if (response == NULL) {
+  const gchar *uri = gtk_entry_buffer_get_text(gtk_entry_get_buffer(GTK_ENTRY(priv->uri_entry)));
+  char *h, *r;
+  split_uri((char *)uri, NULL, &h, &r);
+  httpoop_response resp = httpoop_get(h, r);
+  free(h);
+  free(r);
+  if (resp.buffer == NULL) {
     //TODO: show some error dialogue
   }
 
-  gtk_text_buffer_insert(viewbuf, &iter, response, -1);
+  gtk_text_buffer_insert(viewbuf, &iter, resp.buffer, -1);
   gtk_text_view_set_buffer(GTK_TEXT_VIEW(priv->textarea), viewbuf);
-  free(response);
+  httpoop_response_delete(resp);
 }

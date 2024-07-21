@@ -49,7 +49,6 @@ static int sendall(int s, char *buf, int *len) {
   return n < 0 ? -1 : 0;
 }
 
-//TODO: possibly failing to load all bytes sometimes, investigate
 /* Load response when Content-Length is provided by server */
 static int cl_load(int s, char **buf, int *total, long remaining, int bufsize) {
   int n;
@@ -200,7 +199,7 @@ static int recvall_http(int s, char **buf, int *count) {
   } else if ((clstart = strstr(*buf, "Content-Length: ")) != NULL) {
     clstart += strlen("Content-Length: ");
     long cl = strtol(clstart, NULL, 10);
-    remaining = (cl - (bufsize - headerlen));
+    remaining = (cl - (total - headerlen));
     n = cl_load(s, buf, &total, remaining, bufsize);
   } else {
     /* http 1.1 spec says some servers can just keep sending

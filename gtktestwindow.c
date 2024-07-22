@@ -4,6 +4,7 @@
 #include "gtktestwindow.h"
 #include "httpoop/get.h"
 #include "httpoop/util.h"
+#include "htmlatrine/parser.h"
 
 struct _GtkTestAppWindow {
   GtkApplicationWindow parent;
@@ -79,7 +80,10 @@ void gtktest_app_window_reqcb (GtkWidget *widget, GtkTestAppWindow *win) {
     //TODO: show some error dialogue
   }
 
+  htmlatrine_dom dom = htmlatrine_parse(resp.buffer);
+  
   gtk_text_buffer_insert(viewbuf, &iter, resp.buffer, -1);
   gtk_text_view_set_buffer(GTK_TEXT_VIEW(priv->textarea), viewbuf);
+  
   httpoop_response_delete(resp);
 }

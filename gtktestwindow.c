@@ -3,6 +3,7 @@
 #include "gtktest.h"
 #include "gtktestwindow.h"
 #include "httpoop/get.h"
+#include "httpoop/get_s.h"
 #include "httpoop/util.h"
 #include "htmlatrine/parser.h"
 
@@ -73,7 +74,7 @@ void gtktest_app_window_reqcb (GtkWidget *widget, GtkTestAppWindow *win) {
   const gchar *uri = gtk_entry_buffer_get_text(gtk_entry_get_buffer(GTK_ENTRY(priv->uri_entry)));
   char *h, *r;
   split_uri((char *)uri, NULL, &h, &r);
-  httpoop_response resp = httpoop_get(h, r);
+  httpoop_response resp = httpoop_get_s(h, r);
   free(h);
   free(r);
   if (resp.buffer == NULL) {

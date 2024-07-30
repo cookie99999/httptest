@@ -39,7 +39,7 @@ int split_uri(char *uri, char **scheme, char **host, char **resource) {
   n += m;
 
  noscheme:
-  
+
   for (m = 0; uri[n + m] != '\0' && uri[n + m] != '/'; m++) {
   }
 
@@ -51,14 +51,26 @@ int split_uri(char *uri, char **scheme, char **host, char **resource) {
   }
   n += m;
 
+  int slashflag = 0;
   for (m = 0; uri[n + m] != '\0' && uri[n + m] != '?'; m++) {
+    if (uri[n + m] == '/')
+      slashflag = 1;
   }
 
-  if (resource != NULL) {
-    if ((*resource = malloc(m + 1)) == NULL)
-      return -1;
-    memcpy(*resource, uri + n, m);
-    (*resource)[m] = '\0';
+  if (slashflag == 0) {
+    if (resource != NULL) {
+      if ((*resource = malloc(2)) == NULL)
+	return -1;
+      (*resource)[0] = '/';
+      (*resource)[1] = '\0';
+    }
+  } else {
+    if (resource != NULL) {
+      if ((*resource = malloc(m + 1)) == NULL)
+	return -1;
+      memcpy(*resource, uri + n, m);
+      (*resource)[m] = '\0';
+    }
   }
 
   return 0;

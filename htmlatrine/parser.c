@@ -109,9 +109,8 @@ int htmlatrine_consume_element(char **pos, htmlatrine_node *n) {
     return -1;
   snprintf(search, searchlen, "</%s>", n->element);
 
-  *pos = strstr(*pos, search);
+  *pos = strstr(*pos, search); //TODO dies if no matching close tag
   *pos += searchlen - 1;
-  printf("dbg pos landed on %c after consuming element\n", **pos);
 
   return 0;
 }
@@ -138,11 +137,11 @@ htmlatrine_dom htmlatrine_parse(char *buf) {
 	continue;
       }
       n = htmlatrine_parse_element(&pos);
-      if (strcmp(n->element, "script") == 0 || strcmp(n->element, "style") == 0) {
+      /*if (strcmp(n->element, "script") == 0 || strcmp(n->element, "style") == 0) {
 	htmlatrine_consume_element(&pos, n);
 	htmlatrine_node_delete(n);
 	continue;
-      }
+	}*/
     } else {
       n = htmlatrine_parse_text(&pos);
     }

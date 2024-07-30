@@ -23,28 +23,8 @@
   } while (rval == GNUTLS_E_AGAIN || rval == GNUTLS_E_INTERRUPTED);\
   assert(rval >= 0)
 
-#define REQBUF_SIZE 1024
 #define BUF_INIT_SIZE 1024
 #define REALLOC_INCR 1024
-
-/* Public domain function from beej.us/guide/bgnet */
-static int sendall(int s, char *buf, int *len) {
-  int total = 0;
-  int bytesleft = *len;
-  int n;
-
-  while (total < *len) {
-    n = send(s, buf + total, bytesleft, 0);
-    if (n < 0)
-      break;
-    total += n;
-    bytesleft -= n;
-  }
-
-  *len = total;
-
-  return n < 0 ? -1 : 0;
-}
 
 /* Load response when Content-Length is provided by server */
 static int cl_load(gnutls_session_t session, char **buf, int *total, long remaining, int bufsize) {
@@ -231,7 +211,7 @@ static void strip_headers(char *buf, int len) {
 httpoop_response httpoop_get_s(char *host, char *resource) {
   struct addrinfo hints, *res;
   int status, s, bytecount;
-  char reqbuf[REQBUF_SIZE];
+  char reqbuf[BUF_INIT_SIZE];
   HTTPOOP_RESPONSE_NEW(resp);
   gnutls_session_t session;
   gnutls_datum_t out;
@@ -300,17 +280,12 @@ httpoop_response httpoop_get_s(char *host, char *resource) {
   
   int n;
   //TODO: size this buffer dynamically in case you have a really big header
-  if ((n = snprintf(reqbuf, REQBUF_SIZE, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", resource, host)) < 0) {
+  if ((n = snprintf(reqbuf, BUF_INIT_SIZE, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", resource, host)) < 0) {
     fprintf(stderr, "snprintf: encoding error\n");
     return resp;
   }
 
   printf("Sending request for %s...\n", resource);
-  /*
-  if ((bytecount = sendall(s, reqbuf, &n)) < 0) {
-    perror("sendall");
-    return resp;
-  }*/
   LOOP_CHECK(status, gnutls_record_send(session, reqbuf, strlen(reqbuf)));
 
   printf("Waiting for response... ");

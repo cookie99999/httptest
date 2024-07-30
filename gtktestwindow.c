@@ -39,6 +39,7 @@ static void gtktest_app_window_init(GtkTestAppWindow *win) {
 
   priv->uri_entry = gtk_entry_new();
   gtk_box_pack_start(GTK_BOX(box2), priv->uri_entry, TRUE, TRUE, 0);
+  g_signal_connect(priv->uri_entry, "activate", G_CALLBACK(gtktest_app_window_reqcb), win);
 
   button = gtk_button_new_with_label("Request");
   g_signal_connect(button, "clicked", G_CALLBACK(gtktest_app_window_reqcb), win);
@@ -72,9 +73,19 @@ void gtktest_app_window_reqcb (GtkWidget *widget, GtkTestAppWindow *win) {
   gtk_text_buffer_get_iter_at_offset(viewbuf, &iter, 0);
 
   const gchar *uri = gtk_entry_buffer_get_text(gtk_entry_get_buffer(GTK_ENTRY(priv->uri_entry)));
-  char *h, *r;
-  split_uri((char *)uri, NULL, &h, &r);
-  httpoop_response resp = httpoop_get_s(h, r);
+  char *s, *h, *r;
+  split_uri((char *)uri, &s, &h, &r);
+  httpoop_response resp;
+  if ((strcmp(s, "https://") == 0) || s[0] == '\0') //default to https
+    resp = httpoop_get_s(h, r);
+  else if (strcmp(s, "http://") == 0)
+    resp = httpoop_get(h, r);
+  else {
+    printf("Protocol scheme %s is not currently supported.\n", s);
+    return;
+  }
+  
+  free(s);
   free(h);
   free(r);
   if (resp.buffer == NULL) {

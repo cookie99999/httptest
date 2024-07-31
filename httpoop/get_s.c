@@ -92,7 +92,7 @@ static int chunked_load(gnutls_session_t session, char **buf, int *total, char *
       *bodystart = (*buf) + tmpoffs1;
       pos = (*buf) + tmpoffs2;
     }
-  
+    //TODO: n or remaining or total or something gets messed up around here i think
     while (remaining > 0) {
       assert(remaining <= bufsize - *total);
       LOOP_CHECK(n, gnutls_record_recv(session, *buf + *total, remaining));
@@ -123,10 +123,16 @@ static int chunked_load(gnutls_session_t session, char **buf, int *total, char *
     *bodystart = (*buf) + tmpoffs1;
     pos = (*buf) + tmpoffs2;
 
-    LOOP_CHECK(n, gnutls_record_recv(session, *buf + *total, REALLOC_INCR));
-    if (n < 0)
-      return -1;
-    *total += n;
+    remaining = REALLOC_INCR;
+    while (remaining > 0) {
+      LOOP_CHECK(n, gnutls_record_recv(session, *buf + *total, remaining));
+      if (n < 0)
+	return -1;
+      *total += n;
+      remaining -= n;
+      if (strstr(*buf + (*total - n), "\r\n\r\n")) //end of message
+	break;
+    }
 
     assert(pos < (*buf + bufsize) && pos >= *buf);
     assert(*bodystart < (*buf + bufsize) && *bodystart >= *buf);

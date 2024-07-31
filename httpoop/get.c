@@ -144,9 +144,15 @@ static int chunked_load(int s, char **buf, int *total, char **bodystart, int buf
     *bodystart = (*buf) + tmpoffs1;
     pos = (*buf) + tmpoffs2;
 
-    if ((n = recv(s, *buf + *total, REALLOC_INCR, 0)) < 0)
-      return -1;
-    *total += n;
+    remaining = REALLOC_INCR;
+    while (remaining > 0) {
+      if ((n = recv(s, *buf + *total, remaining, 0)) < 0)
+	return -1;
+      *total += n;
+      remaining -= n;
+      if (strstr(*buf + (*total - n), "\r\n\r\n")) //end of message
+	break;
+    }
 
     assert(pos < (*buf + bufsize) && pos >= *buf);
     assert(*bodystart < (*buf + bufsize) && *bodystart >= *buf);

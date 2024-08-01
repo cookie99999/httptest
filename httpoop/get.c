@@ -202,7 +202,7 @@ static int recvall_http(int s, char **buf, int *count) {
 
   if (strstr(*buf, "Transfer-Encoding: chunked") != NULL) {
     n = chunked_load(s, buf, &total, &bodystart, bufsize);
-  } else if ((clstart = strstr(*buf, "Content-Length: ")) != NULL) {
+  } else if (((clstart = strstr(*buf, "Content-Length: ")) != NULL) || (clstart = strstr(*buf, "content-length: ")) != NULL) {
     clstart += strlen("Content-Length: ");
     long cl = strtol(clstart, NULL, 10);
     remaining = (cl - (total - headerlen));

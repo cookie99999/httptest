@@ -184,7 +184,7 @@ static int recvall_https(gnutls_session_t session, char **buf, int *count) {
 
   if (strstr(*buf, "Transfer-Encoding: chunked") != NULL) {
     n = chunked_load(session, buf, &total, &bodystart, bufsize);
-  } else if ((clstart = strstr(*buf, "Content-Length: ")) != NULL) {
+  } else if (((clstart = strstr(*buf, "Content-Length: ")) != NULL) || (clstart = strstr(*buf, "content-length: ")) != NULL) {
     clstart += strlen("Content-Length: ");
     long cl = strtol(clstart, NULL, 10);
     remaining = (cl - (total - headerlen));

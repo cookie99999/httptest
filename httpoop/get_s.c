@@ -286,7 +286,7 @@ httpoop_response httpoop_get_s(char *host, char *resource) {
   
   int n;
   //TODO: size this buffer dynamically in case you have a really big header
-  if ((n = snprintf(reqbuf, BUF_INIT_SIZE, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", resource, host)) < 0) {
+  if ((n = snprintf(reqbuf, BUF_INIT_SIZE, "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: gtktest/0.01 libhttpoop/0.01\r\n\r\n", resource, host)) < 0) {
     fprintf(stderr, "snprintf: encoding error\n");
     return resp;
   }

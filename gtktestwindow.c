@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <assert.h>
 #include <gtk/gtk.h>
 
 #include "gtktest.h"
@@ -83,6 +85,25 @@ void gtktest_app_window_reqcb (GtkWidget *widget, GtkTestAppWindow *win) {
   else {
     printf("Protocol scheme %s is not currently supported.\n", s);
     return;
+  }
+
+  if (resp.status == 301) { //Moved permanently
+    printf("301, redirecting to %s\n", resp.redirect_uri);
+    free(s);
+    free(h);
+    free(r);
+    assert(resp.redirect_uri != NULL);
+    split_uri(resp.redirect_uri, &s, &h, &r);
+    httpoop_response_delete(resp);
+
+    if ((strcmp(s, "https://") == 0) || s[0] == '\0') //default to https
+      resp = httpoop_get_s(h, r);
+    else if (strcmp(s, "http://") == 0)
+      resp = httpoop_get(h, r);
+    else {
+      printf("Protocol scheme %s is not currently supported.\n", s);
+      return;
+    }
   }
   
   free(s);

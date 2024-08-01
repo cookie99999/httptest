@@ -231,6 +231,35 @@ static void strip_headers(char *buf, int len) {
   int bodylen = len - (bodystart - buf);
   memmove(buf, bodystart, bodylen);
 }
+
+void parse_headers(httpoop_response *resp) {
+  //status
+  char *pos = strstr(resp->buffer, "HTTP/1.1 ");
+  assert(pos != NULL);
+  pos += strlen("HTTP/1.1 ");
+  resp->status = (int) strtol(pos, NULL, 10); //TODO bad typecast
+
+  //header length
+  pos = strstr(resp->buffer, "\r\n\r\n");
+  assert(pos != NULL);
+  pos += strlen("\r\n\r\n");
+  resp->header_length = pos - resp->buffer;
+
+  //redirect if applicable
+  pos = strcasestr(resp->buffer, "Location: ");
+  if (pos != NULL) {
+    pos += strlen("Location: ");
+    int n;
+    for (n = 0; pos[n] != '\0' && pos[n] != '\r'; n++)
+      ;
+    if (n > 0) {
+      if ((resp->redirect_uri = malloc(n + 1)) == NULL)
+	exit(-1);
+      memcpy(resp->redirect_uri, pos, n);
+      resp->redirect_uri[n] = '\0';
+    }
+  }
+}
   
 httpoop_response httpoop_get(char *host, char *resource) {
   struct addrinfo hints, *res;
@@ -290,11 +319,7 @@ httpoop_response httpoop_get(char *host, char *resource) {
   printf("Connection closed.\n");
 
   resp.length = bytecount;
-  char *tmppos = strstr(resp.buffer, "HTTP/1.1 ");
-  assert(tmppos != NULL);
-  tmppos += strlen("HTTP/1.1 ");
-  resp.status = (int) strtol(tmppos, NULL, 10); //TODO bad typecast
-  printf("status = %d\n", resp.status);
+  parse_headers(&resp);
   if (resp.status == 200)
     strip_headers(resp.buffer, bytecount + 1); //+1 for \0
   return resp;

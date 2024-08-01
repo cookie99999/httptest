@@ -213,7 +213,7 @@ static void strip_headers(char *buf, int len) {
   int bodylen = len - (bodystart - buf);
   memmove(buf, bodystart, bodylen);
 }
-  
+    
 httpoop_response httpoop_get_s(char *host, char *resource) {
   struct addrinfo hints, *res;
   int status, s, bytecount;
@@ -312,11 +312,7 @@ httpoop_response httpoop_get_s(char *host, char *resource) {
 
   printf("Bytes received: %d\n", bytecount);
   resp.length = bytecount;
-  char *tmppos = strstr(resp.buffer, "HTTP/1.1 ");
-  assert(tmppos != NULL);
-  tmppos += strlen("HTTP/1.1 ");
-  resp.status = (int) strtol(tmppos, NULL, 10); //TODO bad typecast
-  printf("status = %d\n", resp.status);
+  parse_headers(&resp);
   if (resp.status == 200)
     strip_headers(resp.buffer, bytecount + 1); //+1 for \0
 

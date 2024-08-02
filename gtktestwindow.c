@@ -93,6 +93,8 @@ void gtktest_app_window_reqcb (GtkWidget *widget, GtkTestAppWindow *win) {
     free(h);
     free(r);
     assert(resp.redirect_uri != NULL);
+    gtk_entry_set_text(GTK_ENTRY(priv->uri_entry), resp.redirect_uri); //update address field
+    gtk_editable_set_position(GTK_EDITABLE(priv->uri_entry), -1); //cursor to end
     split_uri(resp.redirect_uri, &s, &h, &r);
     httpoop_response_delete(resp);
 

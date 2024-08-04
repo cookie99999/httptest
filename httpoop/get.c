@@ -259,6 +259,37 @@ void parse_headers(httpoop_response *resp) {
       resp->redirect_uri[n] = '\0';
     }
   }
+
+  //content type
+  pos = strcasestr(resp->buffer, "Content-Type: ");
+  if (pos != NULL) {
+    pos += strlen("Content-Type: ");
+    int n;
+    for (n = 0; pos[n] != '\r' && pos[n] != ';' && pos[n] != '\0'; n++)
+      ;
+    if (n > 0) {
+      if ((resp->content_type = malloc(n + 1)) == NULL)
+	exit(-1);
+      memcpy(resp->content_type, pos, n);
+      resp->content_type[n] = '\0';
+    }
+
+    //charset
+    if (pos[n] == ';') {
+      pos = strcasestr(pos + n, "charset=");
+      if (pos != NULL && pos < (resp->buffer + resp->header_length)) {
+	pos += strlen("charset=");
+	for (n = 0; pos[n] != '\r' && pos[n] != ';' && pos[n] != '\0'; n++)
+	  ;
+	if (n > 0) {
+	  if ((resp->charset = malloc(n + 1)) == NULL)
+	    exit(-1);
+	  memcpy(resp->charset, pos, n);
+	  resp->charset[n] = '\0';
+	}
+      }
+    }
+  }
 }
   
 httpoop_response httpoop_get(char *host, char *resource) {

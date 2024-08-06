@@ -10,11 +10,20 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <gnutls/gnutls.h>
+#include <gnutls/x509.h>
 #include "get.h"
 
-#define REQBUF_SIZE 1024
 #define BUF_INIT_SIZE 1024
 #define REALLOC_INCR 1024
+
+/* public domain macros from gnutls manual */
+#define CHECK(x) assert((x) >= 0)
+#define LOOP_CHECK(rval, cmd) \
+  do {\
+    rval = cmd;\
+  } while (rval == GNUTLS_E_AGAIN || rval == GNUTLS_E_INTERRUPTED);\
+  assert(rval >= 0)
 
 void httpoop_response_delete(httpoop_response resp) {
   if (resp.buffer != NULL)
@@ -50,7 +59,7 @@ static int sendall(int s, char *buf, int *len) {
 }
 
 /* Load response when Content-Length is provided by server */
-static int cl_load(int s, char **buf, int *total, long remaining, int bufsize) {
+static int cl_load(int s, gnutls_session_t session, char **buf, int *total, long remaining, int bufsize) {
   int n;
   char *tmp;
 
@@ -60,7 +69,12 @@ static int cl_load(int s, char **buf, int *total, long remaining, int bufsize) {
     else
       *buf = tmp;
     while (remaining > 0) {
-      if ((n = recv(s, *buf + *total, remaining, 0)) < 0)
+      if (s < 0) {
+	LOOP_CHECK(n, gnutls_record_recv(session, *buf + *total, remaining));
+      } else {
+	n = recv(s, *buf + *total, remaining, 0);
+      }
+      if (n < 0)
         return -1;
       *total += n;
       remaining -= n;
@@ -71,7 +85,7 @@ static int cl_load(int s, char **buf, int *total, long remaining, int bufsize) {
 }
 
 /* Load response when Transfer-Encoding: chunked is used by server */
-static int chunked_load(int s, char **buf, int *total, char **bodystart, int bufsize) {
+static int chunked_load(int s, gnutls_session_t session, char **buf, int *total, char **bodystart, int bufsize) {
   char *chunkbuf = NULL, *pos = NULL, *tmp = NULL;
   int chunkbufsize = BUF_INIT_SIZE;
   int chunksize, remaining, data_recvd = 0, n;
@@ -117,7 +131,12 @@ static int chunked_load(int s, char **buf, int *total, char **bodystart, int buf
   
     while (remaining > 0) {
       assert(remaining <= bufsize - *total);
-      if ((n = recv(s, *buf + *total, remaining, 0)) < 0)
+      if (s < 0) {
+	LOOP_CHECK(n, gnutls_record_recv(session, *buf + *total, remaining));
+      } else {
+	n = recv(s, *buf + *total, remaining, 0);
+      }
+      if (n < 0)
 	return -1;
       *total += n;
       remaining -= n;
@@ -146,7 +165,12 @@ static int chunked_load(int s, char **buf, int *total, char **bodystart, int buf
 
     remaining = REALLOC_INCR;
     while (remaining > 0) {
-      if ((n = recv(s, *buf + *total, remaining, 0)) < 0)
+      if (s < 0) {
+	LOOP_CHECK(n, gnutls_record_recv(session, *buf + *total, remaining));
+      } else {
+	n = recv(s, *buf + *total, remaining, 0);
+      }
+      if (n < 0)
 	return -1;
       *total += n;
       remaining -= n;
@@ -166,7 +190,7 @@ static int chunked_load(int s, char **buf, int *total, char **bodystart, int buf
   return 0;
 }
 
-static int recvall_http(int s, char **buf, int *count) {
+static int recvall_http(int s, gnutls_session_t session, char **buf, int *count) {
   int total = 0;
   long remaining;
   int bufsize = BUF_INIT_SIZE;
@@ -180,7 +204,12 @@ static int recvall_http(int s, char **buf, int *count) {
      continue loading until we get CRLFCRLF
      signifying end of header
   */
-  if ((n = recv(s, *buf, bufsize, 0)) < 0)
+  if (s < 0) {
+    LOOP_CHECK(n, gnutls_record_recv(session, *buf, bufsize));
+  } else {
+    n = recv(s, *buf, bufsize, 0);
+  }
+  if (n < 0)
     return -1;
   total += n;
 
@@ -192,7 +221,12 @@ static int recvall_http(int s, char **buf, int *count) {
     *buf = tmp;
     bodystart = (*buf) + tmpoffs;
 
-    if ((n = recv(s, *buf + total, REALLOC_INCR, 0)) < 0)
+    if (s < 0) {
+      LOOP_CHECK(n, gnutls_record_recv(session, *buf + total, REALLOC_INCR));
+    } else {
+      n = recv(s, *buf + total, REALLOC_INCR, 0);
+    }
+    if (n < 0)
       return -1;
     total += n;
   }
@@ -201,12 +235,12 @@ static int recvall_http(int s, char **buf, int *count) {
   char *clstart;
 
   if (strcasestr(*buf, "Transfer-Encoding: chunked") != NULL) {
-    n = chunked_load(s, buf, &total, &bodystart, bufsize);
+    n = chunked_load(s, session, buf, &total, &bodystart, bufsize);
   } else if ((clstart = strcasestr(*buf, "Content-Length: ")) != NULL) {
     clstart += strlen("Content-Length: ");
     long cl = strtol(clstart, NULL, 10);
     remaining = (cl - (total - headerlen));
-    n = cl_load(s, buf, &total, remaining, bufsize);
+    n = cl_load(s, session, buf, &total, remaining, bufsize);
   } else {
     /* http 1.1 spec says some servers can just keep sending
        data until they close the connection,
@@ -292,18 +326,32 @@ void parse_headers(httpoop_response *resp) {
   }
 }
   
-httpoop_response httpoop_get(char *host, char *resource) {
+httpoop_response httpoop_get(char *scheme, char *host, char *resource) {
   struct addrinfo hints, *res;
-  int status, s, bytecount;
-  char reqbuf[REQBUF_SIZE];
+  int status, s, s2, bytecount, secure;
+  char reqbuf[BUF_INIT_SIZE];
+  char *port;
   HTTPOOP_RESPONSE_NEW(resp);
+  gnutls_session_t session;
+  gnutls_datum_t out;
+  gnutls_certificate_credentials_t xcred;
+
+  if (scheme[0] == '\0' || strcasecmp(scheme, "https://") == 0)
+    secure = 1;
+  else if (strcasecmp(scheme, "http://") == 0)
+    secure = 0;
+  else {
+    fprintf(stderr, "Protocol scheme %s not supported.\n", scheme);
+    return resp;
+  }
+  port = secure == 1 ? "443" : "80";
 
   memset(&hints, 0, sizeof hints);
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_STREAM;
 
   printf("Looking up %s...\n", host);
-  if ((status = getaddrinfo(host, "80", &hints, &res)) != 0) {
+  if ((status = getaddrinfo(host, port, &hints, &res)) != 0) {
     fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
     return resp;
   }
@@ -320,22 +368,69 @@ httpoop_response httpoop_get(char *host, char *resource) {
   }
 
   freeaddrinfo(res);
+
+  if (secure == 1) {
+    if (gnutls_check_version("3.4.6") == NULL) {
+      fprintf(stderr,
+	      "GnuTLS 3.4.6 or later is required for this example\n");
+      exit(1);
+    }
+
+    CHECK(gnutls_global_init());
+    CHECK(gnutls_certificate_allocate_credentials(&xcred));
+    CHECK(gnutls_certificate_set_x509_system_trust(xcred));
+    CHECK(gnutls_init(&session, GNUTLS_CLIENT));
+    CHECK(gnutls_server_name_set(session, GNUTLS_NAME_DNS, host, strlen(host)));
+    CHECK(gnutls_set_default_priority(session));
+    CHECK(gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, xcred));
+    gnutls_session_set_verify_cert(session, host, 0);
+
+    gnutls_transport_set_int(session, s);
+    gnutls_handshake_set_timeout(session, GNUTLS_DEFAULT_HANDSHAKE_TIMEOUT);
+
+    printf("Handshaking with %s...\n", host);
+    do {
+      status = gnutls_handshake(session);
+    } while (status < 0 && gnutls_error_is_fatal(status) == 0);
+    if (status < 0) {
+      if (status == GNUTLS_E_CERTIFICATE_VERIFICATION_ERROR) {
+	int type = gnutls_certificate_type_get(session);
+	int tmpstatus = gnutls_session_get_verify_cert_status(session);
+	CHECK(gnutls_certificate_verification_status_print(tmpstatus, type, &out, 0));
+	printf("cert verify: %s\n", out.data);
+	gnutls_free(out.data);
+      }
+      fprintf(stderr, "handshake failed %s\n", gnutls_strerror(status));
+      goto end;
+    } else {
+      char *desc = gnutls_session_get_desc(session);
+      printf("Handshake successful: %s\n", desc);
+      gnutls_free(desc);
+    }
+
+    s2 = s;
+    s = -1;
+  }
   
   int n;
   //TODO: size this buffer dynamically in case you have a really big header
-  if ((n = snprintf(reqbuf, REQBUF_SIZE, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", resource, host)) < 0) {
+  if ((n = snprintf(reqbuf, BUF_INIT_SIZE, "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: gtktest/0.01 libhttpoop/0.01\r\n\r\n", resource, host)) < 0) {
     fprintf(stderr, "snprintf: encoding error\n");
     return resp;
   }
 
   printf("Sending request for %s...\n", resource);
-  if ((bytecount = sendall(s, reqbuf, &n)) < 0) {
-    perror("sendall");
-    return resp;
+  if (secure == 1) {
+    LOOP_CHECK(status, gnutls_record_send(session, reqbuf, strlen(reqbuf)));
+  } else {
+    if ((bytecount = sendall(s, reqbuf, &n)) < 0) {
+      perror("sendall");
+      return resp;
+    }
   }
 
   printf("Waiting for response... ");
-  if ((recvall_http(s, &(resp.buffer), &bytecount)) < 0) {
+  if ((recvall_http(s, session, &(resp.buffer), &bytecount)) < 0) {
     perror("recv");
     return resp;
   }
@@ -343,15 +438,33 @@ httpoop_response httpoop_get(char *host, char *resource) {
   if (bytecount == 0) {
     printf("Connection closed by remote host.\n");
     return resp;
+  } else if (bytecount < 0 && secure == 1 && gnutls_error_is_fatal(bytecount) == 0) {
+    fprintf(stderr, "GnuTLS warning: %s\n", gnutls_strerror(bytecount));
+  } else if (bytecount < 0 && secure == 1) {
+    fprintf(stderr, "GnuTLS error: %s\n", gnutls_strerror(bytecount));
+    goto end;
   }
 
   printf("Bytes received: %d\n", bytecount);
-  close(s);
-  printf("Connection closed.\n");
-
   resp.length = bytecount;
   parse_headers(&resp);
   if (resp.status == 200)
     strip_headers(resp.buffer, bytecount + 1); //+1 for \0
+
+  if (secure == 1) {
+    CHECK(gnutls_bye(session, GNUTLS_SHUT_RDWR));
+    s = s2;
+  }
+
+ end:
+  shutdown(s, SHUT_RDWR);
+  close(s);
+  if (secure == 1) {
+    gnutls_deinit(session);
+    gnutls_certificate_free_credentials(xcred);
+    gnutls_global_deinit();
+  }
+  printf("Connection closed.\n");
+
   return resp;
 }

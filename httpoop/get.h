@@ -16,6 +16,6 @@ typedef struct _httpoop_response httpoop_response;
 void httpoop_response_delete(httpoop_response resp);
 
 void parse_headers(httpoop_response *resp);
-httpoop_response httpoop_get(char *host, char *resource);
+httpoop_response httpoop_get(char *scheme, char *host, char *resource);
 
 #endif /* __GET_H */

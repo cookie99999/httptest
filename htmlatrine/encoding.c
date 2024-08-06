@@ -1,6 +1,8 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
 #include <string.h>
-#include "httpoop/get.h"
+#include "../httpoop/get.h"
 
 enum Confidence {
   CR_TENTATIVE, CR_CERTAIN
@@ -23,7 +25,7 @@ void delete_attribute(attribute *a) {
 }
 
 attribute *new_attribute(const char *name, const char *value) {
-  attribute *a = malloc(sizeof attribute);
+  attribute *a = malloc(sizeof(attribute));
   if (a != NULL) {
     if ((a->name = malloc(strlen(name) + 1)) == NULL) {
       free(a);
@@ -45,9 +47,12 @@ attribute *new_attribute(const char *name, const char *value) {
 }
 
 attribute *new_attribute_blank() {
-  attribute *a = malloc(sizeof attribute);
-  if (a != NULL)
-    *a = {.name = NULL, .value = NULL, .next = NULL};
+  attribute *a = malloc(sizeof(attribute));
+  if (a != NULL) {
+    a->name = NULL;
+    a->value = NULL;
+    a->next = NULL;
+  }
   return a;
 }
 
@@ -216,17 +221,17 @@ int get_encoding(httpoop_response *resp) {
     return CR_CERTAIN;
 
   //bom sniff
-  if (resp->buffer[0] == 0xef && resp->buffer[1] == 0xbb && resp->buffer[2] == 0xbf) {
+  if (resp->buffer[0] == '\xef' && resp->buffer[1] == '\xbb' && resp->buffer[2] == '\xbf') {
     set_encoding(resp, "utf-8");
     return CR_CERTAIN;
   }
 
-  if (resp->buffer[0] == 0xfe && resp->buffer[1] == 0xff) {
+  if (resp->buffer[0] == '\xfe' && resp->buffer[1] == '\xff') {
     set_encoding(resp, "utf-16be");
     return CR_CERTAIN;
   }
 
-  if (resp->buffer[0] == 0xff && resp->buffer[1] == 0xfe) {
+  if (resp->buffer[0] == '\xff' && resp->buffer[1] == '\xfe') {
     set_encoding(resp, "utf-16le");
     return CR_CERTAIN;
   }
@@ -259,14 +264,14 @@ int get_encoding(httpoop_response *resp) {
 
     if (strncasecmp(pos, "<meta", 5) == 0) {
       pos += 5; //strlen "<meta"
-      int got_pragma = 0, charset_status = NULL;
+      int got_pragma = 0, charset_status = 0;
       char need_pragma = 'n';
       for (;;) {
 	a = get_attribute(&pos);
 	if (a == NULL)
 	  break;
 
-	if (find_attribute(list, a->name))
+	if (find_attribute(*list, a->name))
 	  continue;
 
 	append_attribute(*list, a);
@@ -290,7 +295,7 @@ int get_encoding(httpoop_response *resp) {
 
       if (need_pragma != 'n') {
 	if (need_pragma != 't' && got_pragma == 1) {
-	  if (charset_status != NULL) {
+	  if (charset_status != 0) {
 	    if (strcasecmp(resp->charset, "utf-16be") == 0 || strcasecmp(resp->charset, "utf-16le") == 0)
 	      set_encoding(resp, "utf-8");
 	    if (strcasecmp(resp->charset, "x-user-defined") == 0)

@@ -78,14 +78,7 @@ void gtktest_app_window_reqcb (GtkWidget *widget, GtkTestAppWindow *win) {
   char *s, *h, *r;
   split_uri((char *)uri, &s, &h, &r);
   httpoop_response resp;
-  if ((strcmp(s, "https://") == 0) || s[0] == '\0') //default to https
-    resp = httpoop_get_s(h, r);
-  else if (strcmp(s, "http://") == 0)
-    resp = httpoop_get(h, r);
-  else {
-    printf("Protocol scheme %s is not currently supported.\n", s);
-    return;
-  }
+  resp = httpoop_get(s, h, r);
 
   if (resp.status == 301) { //Moved permanently
     printf("301, redirecting to %s\n", resp.redirect_uri);
@@ -98,14 +91,7 @@ void gtktest_app_window_reqcb (GtkWidget *widget, GtkTestAppWindow *win) {
     split_uri(resp.redirect_uri, &s, &h, &r);
     httpoop_response_delete(resp);
 
-    if ((strcmp(s, "https://") == 0) || s[0] == '\0') //default to https
-      resp = httpoop_get_s(h, r);
-    else if (strcmp(s, "http://") == 0)
-      resp = httpoop_get(h, r);
-    else {
-      printf("Protocol scheme %s is not currently supported.\n", s);
-      return;
-    }
+    resp = httpoop_get(s, h, r);
   }
   
   free(s);

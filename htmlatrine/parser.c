@@ -146,9 +146,9 @@ htmlatrine_dom htmlatrine_parse(char *buf) {
       n = htmlatrine_parse_text(&pos);
     }
 
-    if (dom.root == NULL)
+    if (dom.root == NULL) //TODO add root html node if no root and text node
       dom.root = n;
-    else
+    else //TODO TODO look at the actual standard rules for above scenario
       htmlatrine_node_add_child(dom.root, n);
   }
   

@@ -215,6 +215,8 @@ static int recvall_http(int s, gnutls_session_t session, char **buf, int *count)
 
   char *bodystart;
   while ((bodystart = strstr(*buf, "\r\n\r\n")) == NULL) {
+    //todo: probably don't need to save/restore bodystart yet since
+    //we don't even have it yet
     int tmpoffs = bodystart - *buf;
     if ((tmp = realloc(*buf, bufsize += REALLOC_INCR)) == NULL)
       return -1;
@@ -327,6 +329,8 @@ void parse_headers(httpoop_response *resp) {
 }
   
 httpoop_response httpoop_get(char *scheme, char *host, char *resource) {
+  //todo: provide a status printing callback so the caller can print either
+  //to terminal or graphically eg statusbar
   struct addrinfo hints, *res;
   int status, s, s2, bytecount, secure;
   char reqbuf[BUF_INIT_SIZE];

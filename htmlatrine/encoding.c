@@ -307,4 +307,18 @@ int get_encoding(httpoop_response *resp) {
       }
     }
 
-    
+    if ((*pos == '<' && *(pos + 1) == '/' && isalpha(*(pos + 2))) || (*pos == '<' && isalpha(*(pos + 1)))) {
+      while (*pos != '\x09' && *pos != '\x0a' && *pos != '\x0c' && *pos != '\x0d' && *pos != ' ' && *pos != '>')
+	++pos;
+      while ((a = get_attribute(&pos)) != NULL)
+	append_attribute(*list, a);
+    } else if (strncasecmp(pos, "<!", 2) == 0 || strncasecmp(pos, "</", 2) == 0 || strncasecmp(pos, "<?", 2) == 0) {
+      ++pos;
+      pos = strstr(pos, ">"); //error check this
+    } else {
+      ;
+    }
+
+    //next byte
+    ++pos;
+  }

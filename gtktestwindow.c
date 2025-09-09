@@ -5,7 +5,6 @@
 #include "gtktest.h"
 #include "gtktestwindow.h"
 #include "httpoop/get.h"
-#include "httpoop/get_s.h"
 #include "httpoop/util.h"
 #include "htmlatrine/parser.h"
 

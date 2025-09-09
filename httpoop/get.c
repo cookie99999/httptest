@@ -372,7 +372,7 @@ httpoop_response httpoop_get(char *scheme, char *host, char *resource) {
   if (secure == 1) {
     if (gnutls_check_version("3.4.6") == NULL) {
       fprintf(stderr,
-	      "GnuTLS 3.4.6 or later is required for this example\n");
+	      "GnuTLS 3.4.6 or later is required\n");
       exit(1);
     }
 
@@ -448,7 +448,7 @@ httpoop_response httpoop_get(char *scheme, char *host, char *resource) {
   printf("Bytes received: %d\n", bytecount);
   resp.length = bytecount;
   parse_headers(&resp);
-  if (resp.status == 200)
+  if (resp.status == 200) //todo store headers in a separate buffer instead of just throwing them away
     strip_headers(resp.buffer, bytecount + 1); //+1 for \0
 
   if (secure == 1) {

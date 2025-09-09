@@ -1,0 +1,32 @@
+get.c:
+httpoop_get:
+returns httpoop_response, on error returns it early
+before call to recvall_http this means resp->buffer == NULL
+gnutls version check calls exit, remove this
+many of the gnutls calls use a macro that wraps an assert, remove this
+after call to recvall_http, resp->buffer might be null but also might not
+couple of points jump to end label which closes socket and returns resp
+strip_headers and parse_headers can also error and need to be handled
+
+recvall_http:
+returns int used solely for error status
+some of these would set errno so should probably perror in caller
+also takes a pointer to an int for bytecount, might be simpler to just return that
+the rationale for the above in beej's guide is that the bytecount reflects how many bytes were sent prior to failure but that might not be applicable here
+
+cl_load:
+same as above on all points
+
+chunked_load:
+same as above, consider getting rid of asserts
+
+strip_headers:
+void return
+uses an assert
+unchecked memmove
+research if there's a scenario where a response will actually lack a CRLFCRLF
+
+parse_headers:
+void return
+asserts
+exit call in malloc check, remove this
